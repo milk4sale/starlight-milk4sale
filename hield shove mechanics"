@@ -1,0 +1,301 @@
+[1mdiff --git a/Content.Shared/Popups/SharedPopupSystem.cs b/Content.Shared/Popups/SharedPopupSystem.cs[m
+[1mindex b2be7509f5..697ee18d57 100644[m
+[1m--- a/Content.Shared/Popups/SharedPopupSystem.cs[m
+[1m+++ b/Content.Shared/Popups/SharedPopupSystem.cs[m
+[36m@@ -1,4 +1,4 @@[m
+[31m-using Robust.Shared.Map;[m
+[32m+[m[32m                                    using Robust.Shared.Map;[m
+ using Robust.Shared.Player;[m
+ using Robust.Shared.Serialization;[m
+ [m
+[1mdiff --git a/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedComponent.cs b/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedComponent.cs[m
+[1mnew file mode 100644[m
+[1mindex 0000000000..b00aa12d31[m
+[1m--- /dev/null[m
+[1m+++ b/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedComponent.cs[m
+[36m@@ -0,0 +1,21 @@[m
+[32m+[m[32mnamespace Content.Shared._Starlight.Weapons.Melee;[m
+[32m+[m
+[32m+[m[32m[RegisterComponent][m
+[32m+[m[32mpublic sealed partial class ShieldRaisedComponent : Component[m
+[32m+[m[32m{[m
+[32m+[m[32m    [DataField] public float Distance = 0.25f;[m
+[32m+[m
+[32m+[m[32m    [DataField] public float Speed = 3f;[m
+[32m+[m
+[32m+[m[32m    [DataField] public float RaisedDistance = 0.5f;[m
+[32m+[m
+[32m+[m[32m    [DataField] public float RaisedSpeed = 4f;[m
+[32m+[m
+[32m+[m[32m    [DataField] public float RaisedStaminaMultiplier = 2.5f;[m
+[32m+[m
+[32m+[m[32m    [DataField] public float RaiseAttackDelay = 2f;[m
+[32m+[m
+[32m+[m[32m    public TimeSpan? RaisedAt;[m
+[32m+[m
+[32m+[m[32m    public bool PendingRaisedBash;[m
+[32m+[m[32m}[m
+[1mdiff --git a/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedSystem.cs b/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedSystem.cs[m
+[1mnew file mode 100644[m
+[1mindex 0000000000..04ddf169b7[m
+[1m--- /dev/null[m
+[1m+++ b/Content.Shared/_Starlight/Weapons/Melee/ShieldRaisedSystem.cs[m
+[36m@@ -0,0 +1,193 @@[m
+[32m+[m[32musing System.Numerics;[m
+[32m+[m[32musing Content.Shared.Blocking;[m
+[32m+[m[32musing Content.Shared.Damage.Events;[m
+[32m+[m[32musing Content.Shared.Interaction.Events;[m
+[32m+[m[32musing Content.Shared.Throwing;[m
+[32m+[m[32musing Content.Shared.Weapons.Melee.Components;[m
+[32m+[m[32musing Content.Shared.Weapons.Melee.Events;[m
+[32m+[m[32musing Robust.Shared.Timing;[m
+[32m+[m
+[32m+[m[32mnamespace Content.Shared._Starlight.Weapons.Melee;[m
+[32m+[m
+[32m+[m[32mpublic sealed partial class ShieldRaisedSystem : EntitySystem[m
+[32m+[m[32m{[m
+[32m+[m[32m    [Dependency] private SharedTransformSystem _transform = null!;[m
+[32m+[m[32m    [Dependency] private ThrowingSystem _throwing = null!;[m
+[32m+[m[32m    [Dependency] private IGameTiming _timing = null!;[m
+[32m+[m[32m    [Dependency] private BlockingSystem _blockingSystem = null!;[m
+[32m+[m
+[32m+[m[32m    public override void Initialize()[m
+[32m+[m[32m    {[m
+[32m+[m[32m        base.Initialize();[m
+[32m+[m
+[32m+[m[32m        SubscribeLocalEvent<ShieldRaisedComponent, MeleeHitEvent>(OnMeleeHit);[m
+[32m+[m[32m        SubscribeLocalEvent<ShieldRaisedComponent, StaminaMeleeHitEvent>(OnStaminaMeleeHit);[m
+[32m+[m
+[32m+[m[32m        // Prevent attacking until the shield has been planted long enough.[m
+[32m+[m[32m        SubscribeLocalEvent<BlockingUserComponent, AttackAttemptEvent>(OnAttackAttempt);[m
+[32m+[m
+[32m+[m[32m        // Runs once the melee attack has actually been confirmed.[m
+[32m+[m[32m        SubscribeLocalEvent<ShieldRaisedComponent, AttemptMeleeEvent>(OnAttemptMelee);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    public override void Update(float frameTime)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        base.Update(frameTime);[m
+[32m+[m
+[32m+[m[32m        var query =[m
+[32m+[m[32m            EntityQueryEnumerator<ShieldRaisedComponent, BlockingComponent>();[m
+[32m+[m
+[32m+[m[32m        while (query.MoveNext(out _, out var shieldRaised, out var blocking))[m
+[32m+[m[32m        {[m
+[32m+[m[32m            if (blocking.IsBlocking)[m
+[32m+[m[32m            {[m
+[32m+[m[32m                // Start the planting timer once when the shield becomes raised.[m
+[32m+[m[32m                shieldRaised.RaisedAt ??= _timing.CurTime;[m
+[32m+[m[32m            }[m
+[32m+[m[32m            else[m
+[32m+[m[32m            {[m
+[32m+[m[32m                // Reset everything once the shield is lowered.[m
+[32m+[m[32m                shieldRaised.RaisedAt = null;[m
+[32m+[m[32m                shieldRaised.PendingRaisedBash = false;[m
+[32m+[m[32m            }[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private void OnAttackAttempt([m
+[32m+[m[32m        Entity<BlockingUserComponent> ent,[m
+[32m+[m[32m        ref AttackAttemptEvent args)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (args.Disarm)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        if (args.Weapon is not { } weapon)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        if (!TryComp<ShieldRaisedComponent>(weapon.Owner, out var shieldRaised))[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        if (!TryComp<BlockingComponent>(weapon.Owner, out var blocking))[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        // Normal unraised attack.[m
+[32m+[m[32m        if (!blocking.IsBlocking)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        // Start the planting timer if it somehow has not started yet.[m
+[32m+[m[32m        if (shieldRaised.RaisedAt == null)[m
+[32m+[m[32m        {[m
+[32m+[m[32m            shieldRaised.RaisedAt = _timing.CurTime;[m
+[32m+[m[32m            args.Cancel();[m
+[32m+[m[32m            return;[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        var readyAt =[m
+[32m+[m[32m            shieldRaised.RaisedAt.Value +[m
+[32m+[m[32m            TimeSpan.FromSeconds(shieldRaised.RaiseAttackDelay);[m
+[32m+[m
+[32m+[m[32m        // Shield is still being planted.[m
+[32m+[m[32m        if (_timing.CurTime < readyAt)[m
+[32m+[m[32m            args.Cancel();[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private void OnAttemptMelee([m
+[32m+[m[32m        Entity<ShieldRaisedComponent> ent,[m
+[32m+[m[32m        ref AttemptMeleeEvent args)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (!TryComp<BlockingComponent>(ent.Owner, out var blocking))[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        if (!blocking.IsBlocking)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        if (ent.Comp.RaisedAt == null)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        var readyAt =[m
+[32m+[m[32m            ent.Comp.RaisedAt.Value +[m
+[32m+[m[32m            TimeSpan.FromSeconds(ent.Comp.RaiseAttackDelay);[m
+[32m+[m
+[32m+[m[32m        if (_timing.CurTime < readyAt)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        // Preserve the raised-bash bonuses for this attack.[m
+[32m+[m[32m        ent.Comp.PendingRaisedBash = true;[m
+[32m+[m
+[32m+[m[32m        // The strong bash consumes the raised stance.[m
+[32m+[m[32m        _blockingSystem.StopBlocking([m
+[32m+[m[32m            ent.Owner,[m
+[32m+[m[32m            blocking,[m
+[32m+[m[32m            args.User);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private bool IsRaisedBash(Entity<ShieldRaisedComponent> ent)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (ent.Comp.PendingRaisedBash)[m
+[32m+[m[32m            return true;[m
+[32m+[m
+[32m+[m[32m        return TryComp<BlockingComponent>(ent.Owner, out var blocking) &&[m
+[32m+[m[32m               blocking.IsBlocking;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private void OnStaminaMeleeHit([m
+[32m+[m[32m        Entity<ShieldRaisedComponent> ent,[m
+[32m+[m[32m        ref StaminaMeleeHitEvent args)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (!IsRaisedBash(ent))[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        args.Multiplier *= ent.Comp.RaisedStaminaMultiplier;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private void OnMeleeHit([m
+[32m+[m[32m        Entity<ShieldRaisedComponent> ent,[m
+[32m+[m[32m        ref MeleeHitEvent args)[m
+[32m+[m[32m    {[m
+[32m+[m[32m        if (!args.IsHit || args.HitEntities.Count == 0)[m
+[32m+[m[32m            return;[m
+[32m+[m
+[32m+[m[32m        var raised = IsRaisedBash(ent);[m
+[32m+[m
+[32m+[m[32m        var distance = raised[m
+[32m+[m[32m            ? ent.Comp.RaisedDistance[m
+[32m+[m[32m            : ent.Comp.Distance;[m
+[32m+[m
+[32m+[m[32m        var speed = raised[m
+[32m+[m[32m            ? ent.Comp.RaisedSpeed[m
+[32m+[m[32m            : ent.Comp.Speed;[m
+[32m+[m
+[32m+[m[32m        var userPosition = _transform.GetWorldPosition(args.User);[m
+[32m+[m
+[32m+[m[32m        foreach (var target in args.HitEntities)[m
+[32m+[m[32m        {[m
+[32m+[m[32m            var targetPosition =[m
+[32m+[m[32m                _transform.GetMapCoordinates(target).Position;[m
+[32m+[m
+[32m+[m[32m            var direction =[m
+[32m+[m[32m                args.Direction ?? targetPosition - userPosition;[m
+[32m+[m
+[32m+[m[32m            if (direction == Vector2.Zero)[m
+[32m+[m[32m                continue;[m
+[32m+[m
+[32m+[m[32m            var attemptEvent =[m
+[32m+[m[32m                new AttemptMeleeThrowOnHitEvent(target, args.User);[m
+[32m+[m
+[32m+[m[32m            RaiseLocalEvent(ent.Owner, ref attemptEvent);[m
+[32m+[m
+[32m+[m[32m            if (attemptEvent.Cancelled)[m
+[32m+[m[32m                continue;[m
+[32m+[m
+[32m+[m[32m            var startEvent =[m
+[32m+[m[32m                new MeleeThrowOnHitStartEvent(ent.Owner, args.User);[m
+[32m+[m
+[32m+[m[32m            RaiseLocalEvent(target, ref startEvent);[m
+[32m+[m
+[32m+[m[32m            _throwing.TryThrow([m
+[32m+[m[32m                target,[m
+[32m+[m[32m                direction.Normalized() * distance,[m
+[32m+[m[32m                speed,[m
+[32m+[m[32m                args.User,[m
+[32m+[m[32m                predicted: true);[m
+[32m+[m[32m        }[m
+[32m+[m[32m    }[m
+[32m+[m[32m}[m
+[1mdiff --git a/Resources/Prototypes/Entities/Objects/Shields/shields.yml b/Resources/Prototypes/Entities/Objects/Shields/shields.yml[m
+[1mindex 3d6036e6be..244f53c63d 100644[m
+[1m--- a/Resources/Prototypes/Entities/Objects/Shields/shields.yml[m
+[1m+++ b/Resources/Prototypes/Entities/Objects/Shields/shields.yml[m
+[36m@@ -112,6 +112,26 @@[m
+         flatReductions:[m
+           Blunt: 1[m
+           Slash: 1[m
+[32m+[m[32m    #Starlight-start shield bash[m
+[32m+[m[32m    - type: MeleeWeapon[m
+[32m+[m[32m      attackRate: 0.8[m
+[32m+[m[32m      damage:[m
+[32m+[m[32m        types:[m
+[32m+[m[32m          Blunt: 7[m
+[32m+[m[32m      soundHit:[m
+[32m+[m[32m        collection: GenericHit[m
+[32m+[m
+[32m+[m[32m    - type: StaminaDamageOnHit[m
+[32m+[m[32m      damage: 20[m
+[32m+[m
+[32m+[m[32m    - type: ShieldRaised[m
+[32m+[m[32m      distance: 0.4[m
+[32m+[m[32m      speed: 3[m
+[32m+[m[32m      raisedDistance: .6[m
+[32m+[m[32m      raisedSpeed: 4[m
+[32m+[m[32m      raisedStaminaMultiplier: 2.5[m
+[32m+[m[32m      raiseAttackDelay: 1.8[m
+[32m+[m[32m    #Starlight-end[m
+ [m
+ - type: entity[m
+   name: laser shield[m
+[1mdiff --git a/Resources/Prototypes/_Starlight/Entities/Objects/Shields/shields.yml b/Resources/Prototypes/_Starlight/Entities/Objects/Shields/shields.yml[m
+[1mindex 3e43e1f54e..e60a237c5a 100644[m
+[1m--- a/Resources/Prototypes/_Starlight/Entities/Objects/Shields/shields.yml[m
+[1m+++ b/Resources/Prototypes/_Starlight/Entities/Objects/Shields/shields.yml[m
+[36m@@ -440,6 +440,29 @@[m
+       components:[m
+         - type: DisarmMalus[m
+           malus: 0.6[m
+[32m+[m[32m# Shield bash components only exist while the phase shield is active.[m
+[32m+[m[32m        - type: MeleeWeapon[m
+[32m+[m[32m          attackRate: 0.8[m
+[32m+[m[32m          damage:[m
+[32m+[m[32m            types:[m
+[32m+[m[32m              Blunt: 3[m
+[32m+[m[32m              Heat: 4[m
+[32m+[m[32m          soundHit:[m
+[32m+[m[32m            path: /Audio/Weapons/eblade1.ogg[m
+[32m+[m[32m            params:[m
+[32m+[m[32m              variation: 0.250[m
+[32m+[m
+[32m+[m[32m        - type: StaminaDamageOnHit[m
+[32m+[m[32m          damage: 25[m
+[32m+[m
+[32m+[m[32m        - type: ShieldRaised[m
+[32m+[m[32m          distance: 0.5[m
+[32m+[m[32m          speed: 4[m
+[32m+[m[32m          raisedDistance: .7[m
+[32m+[m[32m          raisedSpeed: 5[m
+[32m+[m[32m          raisedStaminaMultiplier: 2[m
+[32m+[m[32m          raiseAttackDelay: 1.8[m
+[32m+[m[32m        # end[m
+     - type: Clothing[m
+       quickEquip: false[m
+       slots:[m

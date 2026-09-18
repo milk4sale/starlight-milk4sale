@@ -112,6 +112,26 @@
         flatReductions:
           Blunt: 1
           Slash: 1
+    #Starlight-start shield bash
+    - type: MeleeWeapon
+      attackRate: 0.8
+      damage:
+        types:
+          Blunt: 7
+      soundHit:
+        collection: GenericHit
+
+    - type: StaminaDamageOnHit
+      damage: 20
+
+    - type: ShieldRaised
+      distance: 0.4
+      speed: 3
+      raisedDistance: .6
+      raisedSpeed: 4
+      raisedStaminaMultiplier: 2.5
+      raiseAttackDelay: 1.8
+    #Starlight-end
 
 - type: entity
   name: laser shield

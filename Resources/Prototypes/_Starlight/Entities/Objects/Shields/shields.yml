@@ -440,6 +440,29 @@
       components:
         - type: DisarmMalus
           malus: 0.6
+# Shield bash components only exist while the phase shield is active.
+        - type: MeleeWeapon
+          attackRate: 0.8
+          damage:
+            types:
+              Blunt: 3
+              Heat: 4
+          soundHit:
+            path: /Audio/Weapons/eblade1.ogg
+            params:
+              variation: 0.250
+
+        - type: StaminaDamageOnHit
+          damage: 25
+
+        - type: ShieldRaised
+          distance: 0.5
+          speed: 4
+          raisedDistance: .7
+          raisedSpeed: 5
+          raisedStaminaMultiplier: 2
+          raiseAttackDelay: 1.8
+        # end
     - type: Clothing
       quickEquip: false
       slots:
